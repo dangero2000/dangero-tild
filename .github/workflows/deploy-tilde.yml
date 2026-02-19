@@ -57,26 +57,23 @@ jobs:
 
           # Decode key from base64 to avoid newline/format corruption in secrets
           printf '%s' "$KEY_B64" | base64 -d > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
 
           # Quick sanity check that the key parses
           ssh-keygen -y -f /tmp/deploy_key >/dev/null
 
-          # Add host key (and fail if keyscan fails)
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          # SSH options we will reuse everywhere
+          SSH_OPTS="-i /tmp/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes"
+
+          # Optional: sanity check remote has rsync (fails fast with a useful error)
+          ssh $SSH_OPTS "${USER}@${HOST}" 'command -v rsync >/dev/null && rsync --version'
 
           # Ensure destination exists
-          ssh -i /tmp/deploy_key \
-            -o IdentitiesOnly=yes \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            "${USER}@${HOST}" \
-            "mkdir -p '${REMOTE_PATH}'"
+          ssh $SSH_OPTS "${USER}@${HOST}" "mkdir -p '${REMOTE_PATH}'"
 
-          # Deploy
+          # Deploy (verbose SSH so we can see why it drops; avoid leaking secrets)
+          RSYNC_RSH="ssh $SSH_OPTS -vvv"
           rsync -rlgoDzvc --delete \
-            -e "ssh -i /tmp/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes" \
+            -e "$RSYNC_RSH" \
             public/ \
             "${USER}@${HOST}:${REMOTE_PATH}/"
