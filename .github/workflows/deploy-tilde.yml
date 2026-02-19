@@ -38,8 +38,8 @@ jobs:
           USER: ${{ secrets.TILDE_USER }}
           PATH: ${{ secrets.TILDE_PATH }}
         run: |
-          echo "$KEY" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
+          install -m 600 /dev/null /tmp/deploy_key
+          printf '%s' "$KEY" > /tmp/deploy_key
           rsync -rlgoDzvc --delete \
             -e "ssh -i /tmp/deploy_key" \
             public/ \
