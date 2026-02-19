@@ -2,7 +2,7 @@
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -10,12 +10,20 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
+
+      - name: Install deploy dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rsync openssh-client coreutils ca-certificates
+          rsync --version
+          ssh -V
 
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v3
@@ -27,20 +35,40 @@ jobs:
         run: hugo --minify --baseURL "https://lowerelements.club/~dangero/"
 
       - name: Add SSH known_hosts
+        env:
+          HOST: ${{ secrets.TILDE_HOST }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.TILDE_HOST }}" >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy via rsync
         env:
-          KEY:  ${{ secrets.TILDE_SSH_KEY }}
+          KEY: ${{ secrets.TILDE_SSH_KEY }}
           HOST: ${{ secrets.TILDE_HOST }}
           USER: ${{ secrets.TILDE_USER }}
-          PATH: ${{ secrets.TILDE_PATH }}
+          REMOTE_PATH: ${{ secrets.TILDE_PATH }}
         run: |
+          set -euo pipefail
+
+          # Write the private key with safe permissions
           umask 077
           printf '%s' "$KEY" > /tmp/deploy_key
+
+          # Quick sanity check that the key at least parses
+          ssh-keygen -y -f /tmp/deploy_key >/dev/null
+
+          # Ensure destination path exists (tilde shells are usually POSIX)
+          ssh -i /tmp/deploy_key \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "${USER}@${HOST}" \
+            "mkdir -p '${REMOTE_PATH}'"
+
+          # Deploy
           rsync -rlgoDzvc --delete \
-            -e "ssh -i /tmp/deploy_key" \
+            -e "ssh -i /tmp/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes" \
             public/ \
-            "${USER}@${HOST}:${PATH}/"
+            "${USER}@${HOST}:${REMOTE_PATH}/"
