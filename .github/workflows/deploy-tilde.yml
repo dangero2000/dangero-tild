@@ -44,22 +44,30 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy via rsync
+        shell: bash
         env:
-          KEY: ${{ secrets.TILDE_SSH_KEY }}
+          KEY_B64: ${{ secrets.TILDE_SSH_KEY_B64 }}
           HOST: ${{ secrets.TILDE_HOST }}
           USER: ${{ secrets.TILDE_USER }}
           REMOTE_PATH: ${{ secrets.TILDE_PATH }}
         run: |
           set -euo pipefail
 
-          # Write the private key with safe permissions
           umask 077
-          printf '%s' "$KEY" > /tmp/deploy_key
 
-          # Quick sanity check that the key at least parses
+          # Decode key from base64 to avoid newline/format corruption in secrets
+          printf '%s' "$KEY_B64" | base64 -d > /tmp/deploy_key
+
+          # Quick sanity check that the key parses
           ssh-keygen -y -f /tmp/deploy_key >/dev/null
 
-          # Ensure destination path exists (tilde shells are usually POSIX)
+          # Add host key (and fail if keyscan fails)
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          # Ensure destination exists
           ssh -i /tmp/deploy_key \
             -o IdentitiesOnly=yes \
             -o BatchMode=yes \
